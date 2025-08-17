@@ -5,7 +5,7 @@ const Sidebar: React.FC = () => {
   const { sidebarOpen } = useAppContext();
 
   return (
-    <aside 
+    <aside
       className={`fixed left-0 top-0 h-full bg-[#111111] border-r border-[#444444] transition-all duration-300 z-50 ${
         sidebarOpen ? 'w-64' : 'w-16'
       } md:relative md:w-64`}
@@ -19,31 +19,32 @@ const Sidebar: React.FC = () => {
             </h1>
           )}
         </div>
-        
+
         <nav className="mt-8 space-y-2">
-          <a 
-            href="/" 
+          <a
+            href="/"
             className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
           >
             <span className="w-5 h-5 mr-3">🏠</span>
             {(sidebarOpen || window.innerWidth >= 768) && <span>Home</span>}
           </a>
-          <a 
-            href="/mission-control" 
+          <a
+            href="/mission"
             className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
           >
             <span className="w-5 h-5 mr-3">🎯</span>
             {(sidebarOpen || window.innerWidth >= 768) && <span>Mission Control</span>}
           </a>
-          <a 
-            href="#" 
+          {/* New Link */}
+          <a
+            href="/knowledge"
             className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
           >
-            <span className="w-5 h-5 mr-3">⚡</span>
-            {(sidebarOpen || window.innerWidth >= 768) && <span>Features</span>}
+            <span className="w-5 h-5 mr-3">📚</span>
+            {(sidebarOpen || window.innerWidth >= 768) && <span>Knowledge</span>}
           </a>
-          <a 
-            href="#" 
+          <a
+            href="#"
             className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
           >
             <span className="w-5 h-5 mr-3">📞</span>

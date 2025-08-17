@@ -9,6 +9,7 @@ import AuthGate from "@/components/AuthGate"
 
 import Index from "./pages/Index"
 import MissionControl from "./pages/MissionControl"
+import Knowledge from "./pages/Knowledge" // Import the new page
 import NotFound from "./pages/NotFound"
 
 const queryClient = new QueryClient()
@@ -24,6 +25,7 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/mission" element={<MissionControl />} />
+              <Route path="/knowledge" element={<Knowledge />} /> {/* Add the new route */}
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
