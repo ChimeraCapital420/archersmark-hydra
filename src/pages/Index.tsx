@@ -1,39 +1,23 @@
-import React from 'react';
-import AppLayout from '@/components/AppLayout';
-import HeroSection from '@/components/HeroSection';
-import AITeamShowcase from '@/components/AITeamShowcase';
-import { CommandCenter } from '@/components/CommandCenter';
-import { AppProvider } from '@/contexts/AppContext';
+// src/pages/Index.tsx
+import { useState } from "react"
+import PersonaGrid from "../components/PersonaGrid"
+import HydraChatTest from "../components/HydraChatTest"
 
-const Index: React.FC = () => {
+export default function Index() {
+  const [who, setWho] = useState("Janus")
+
   return (
-    <AppProvider>
-      <AppLayout>
-        <div className="space-y-0">
-          <HeroSection />
-          
-          <AITeamShowcase />
-          
-          <CommandCenter />
-          
-          <section className="grid md:grid-cols-3 gap-6 py-16 px-6">
-            <div className="bg-[#222222] p-6 rounded-lg border border-[#444444] hover:border-[#00BFFF] transition-all duration-300">
-              <h3 className="text-xl font-semibold mb-3 text-[#00BFFF] font-orbitron">AI-Powered</h3>
-              <p className="text-[#EAEAEA] font-inter">Advanced artificial intelligence at your fingertips</p>
-            </div>
-            <div className="bg-[#222222] p-6 rounded-lg border border-[#444444] hover:border-[#00BFFF] transition-all duration-300">
-              <h3 className="text-xl font-semibold mb-3 text-[#00BFFF] font-orbitron">Secure</h3>
-              <p className="text-[#EAEAEA] font-inter">Enterprise-grade security for your peace of mind</p>
-            </div>
-            <div className="bg-[#222222] p-6 rounded-lg border border-[#444444] hover:border-[#00BFFF] transition-all duration-300">
-              <h3 className="text-xl font-semibold mb-3 text-[#00BFFF] font-orbitron">Fast</h3>
-              <p className="text-[#EAEAEA] font-inter">Lightning-fast processing and real-time results</p>
-            </div>
-          </section>
-        </div>
-      </AppLayout>
-    </AppProvider>
-  );
-};
+    <div className="min-h-screen bg-[#1A1A1A] text-white">
+      <div className="max-w-6xl mx-auto p-6">
+        <h1 className="text-2xl font-bold mb-2">Archersmark Hydra</h1>
+        <p className="text-zinc-400 mb-6">Private command center</p>
 
-export default Index;
+        {/* 1) Your roster from Supabase */}
+        <PersonaGrid selectedName={who} onSelect={setWho} />
+
+        {/* 2) Chat with the selected persona */}
+        <HydraChatTest personaName={who} />
+      </div>
+    </div>
+  )
+}

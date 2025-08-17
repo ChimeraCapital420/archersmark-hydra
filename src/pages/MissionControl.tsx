@@ -1,46 +1,44 @@
-import React, { useState } from 'react';
-import AIRoster from '@/components/mission-control/AIRoster';
-import TaskingTerminal from '@/components/mission-control/TaskingTerminal';
-import LiveCommsLog from '@/components/mission-control/LiveCommsLog';
-import { ChatModal } from '@/components/ChatModal';
+import React, { useState } from 'react'
+import AIRoster from '../components/mission-control/AIRoster'
+import TaskingTerminal from '../components/mission-control/TaskingTerminal'
+import LiveCommsLog from '../components/mission-control/LiveCommsLog'
+import { ChatModal } from '../components/ChatModal'
+
 const MissionControl: React.FC = () => {
-  const [selectedAI, setSelectedAI] = useState<any>(null);
-  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [selectedAI, setSelectedAI] = useState<any>(null)
+  const [isChatOpen, setIsChatOpen] = useState(false)
 
   const handleAISelect = (aiMember: any) => {
-    setSelectedAI(aiMember);
-    setIsChatOpen(true);
-  };
+    setSelectedAI(aiMember)
+    setIsChatOpen(true)
+  }
 
   const handleChatClose = () => {
-    setIsChatOpen(false);
-    setSelectedAI(null);
-  };
+    setIsChatOpen(false)
+    setSelectedAI(null)
+  }
+
   return (
     <div className="min-h-screen bg-[#0A0A0A] text-[#EAEAEA] p-6">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-4xl font-bold font-['Orbitron'] text-[#00BFFF] mb-8 text-center">
           Mission Control
         </h1>
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-200px)]">
-          {/* Left Column - AI Roster */}
           <div className="lg:col-span-3">
             <AIRoster onAISelect={handleAISelect} />
           </div>
-          
-          {/* Center Column - Primary Tasking Terminal */}
+
           <div className="lg:col-span-6">
             <TaskingTerminal />
           </div>
-          
-          {/* Right Column - Live Communications Log */}
+
           <div className="lg:col-span-3">
             <LiveCommsLog />
           </div>
         </div>
 
-        {/* Chat Modal */}
         {selectedAI && (
           <ChatModal
             isOpen={isChatOpen}
@@ -50,7 +48,7 @@ const MissionControl: React.FC = () => {
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default MissionControl;
+export default MissionControl
