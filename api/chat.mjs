@@ -3,7 +3,6 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
-import cheerio from 'cheerio';
 
 // --- Environment Variable Setup ---
 const {
@@ -26,7 +25,6 @@ if (GROK_API_KEY) llm_providers.push({ name: 'Grok', client: new Groq({ apiKey: 
 if (DEEPSEEK_API_KEY) llm_providers.push({ name: 'DeepSeek', client: new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com/v1" }) });
 
 const adminSupabase = createClient(SUPA_URL, SUPA_SERVICE, { auth: { persistSession: false } });
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY }); // For embeddings
 
 // --- Helper Functions ---
 function fail(res, code, stage, detail) {
@@ -43,7 +41,6 @@ async function logHydraEvent(log) {
 }
 
 async function getProviderResponse(provider, systemPrompt, messages) {
-    // This function remains the same as before, handling individual provider calls and logging errors.
     try {
         const openAILikeMessages = messages.map(m => ({ role: m.role, content: m.content }));
         switch (provider.name) {
@@ -75,23 +72,6 @@ async function getProviderResponse(provider, systemPrompt, messages) {
     }
 }
 
-async function scrapeURL(url) {
-    try {
-        const response = await fetch(url, { headers: { 'User-Agent': 'HydraEngineBot/1.0' } });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const html = await response.text();
-        const $ = cheerio.load(html);
-        $('script, style, noscript, iframe, img, svg, header, footer, nav, aside').remove();
-        let text = $('body').text();
-        text = text.replace(/\s\s+/g, ' ').trim();
-        return text.slice(0, 8000);
-    } catch (error) {
-        console.error(`Error scraping ${url}:`, error.message);
-        await logHydraEvent({ log_type: 'WEB_SCRAPE_FAILURE', provider: 'cheerio', error_message: error.message, metadata: { url } });
-        return `[Could not retrieve content from the URL: ${url}]`;
-    }
-}
-
 // --- Main Handler ---
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -112,34 +92,12 @@ export default async function handler(req, res) {
 
     const { data: persona } = await adminSupabase.from('ai_personas').select('*').eq('name', personaName).single();
     if (!persona) return fail(res, 404, 'PERSONA_LOOKUP', 'Persona not found');
+
+    const { data: history } = await adminSupabase.from('conversation_history').select('sender, message_content').eq('user_id', user.id).eq('persona_id', persona.id).order('created_at', { ascending: false }).limit(10);
     
     await adminSupabase.from('conversation_history').insert({ user_id: user.id, persona_id: persona.id, sender: 'user', message_content: userMessage });
 
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urlsInMessage = userMessage.match(urlRegex);
-    let webContext = '';
-    if (urlsInMessage) {
-        const scrapePromises = urlsInMessage.map(url => scrapeURL(url));
-        const scrapedContents = await Promise.all(scrapePromises);
-        webContext = scrapedContents.join('\n\n');
-    }
-
-    const embeddingResponse = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: userMessage });
-    const userMessageEmbedding = embeddingResponse.data[0].embedding;
-
-    const { data: documents } = await adminSupabase.rpc('match_documents', { query_embedding: userMessageEmbedding, match_count: 5 });
-    
-    let knowledgeContext = '';
-    if (documents && documents.length > 0) {
-        knowledgeContext = documents.map(d => `Source: ${d.file_name}\nContent: ${d.content}`).join('\n\n---\n\n');
-    }
-
-    let combinedContext = '';
-    if(webContext) combinedContext += `CONTEXT FROM WEB:\n${webContext}\n\n`;
-    if(knowledgeContext) combinedContext += `CONTEXT FROM KNOWLEDGE BASE:\n${knowledgeContext}\n\n`;
-
-    const { data: history } = await adminSupabase.from('conversation_history').select('sender, message_content').eq('user_id', user.id).eq('persona_id', persona.id).order('created_at', { ascending: false }).limit(10);
-    const systemPrompt = `You are ${persona.name}. Role: "${persona.role}". Attributes: ${persona.key_attributes}. Summary: "${persona.dossier_summary}". Respond as this persona. Stay in character. Be direct and intelligent. If relevant, use the following context from the user's knowledge base and provided web links to inform your response:\n\n<CONTEXT>\n${combinedContext || 'No context provided.'}\n</CONTEXT>`;
+    const systemPrompt = `You are ${persona.name}. Role: "${persona.role}". Attributes: ${persona.key_attributes}. Summary: "${persona.dossier_summary}". Respond as this persona. Stay in character. Be direct and intelligent.`;
     const messages = [ ...history.reverse().map(h => ({ role: h.sender === 'user' ? 'user' : 'assistant', content: h.message_content })), { role: 'user', content: userMessage } ];
     
     const promises = llm_providers.map(p => getProviderResponse(p, systemPrompt, messages));
@@ -159,10 +117,14 @@ export default async function handler(req, res) {
     for (const candidateName of synthesis_candidates) {
         const provider = llm_providers.find(p => p.name === candidateName);
         if (provider) {
-            const response = await getProviderResponse(provider, 'You are a master synthesizer AI.', [{ role: 'user', content: synthesisPrompt }]);
-            if (response) {
-                finalReply = response.substring(response.indexOf(':') + 2);
-                break;
+            try {
+                const response = await getProviderResponse(provider, 'You are a master synthesizer AI.', [{ role: 'user', content: synthesisPrompt }]);
+                if (response) {
+                    finalReply = response.substring(response.indexOf(':') + 2);
+                    break; // Success, exit the loop
+                }
+            } catch (e) {
+                console.warn(`Synthesis with ${candidateName} failed, trying next...`);
             }
         }
     }
