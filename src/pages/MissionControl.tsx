@@ -1,54 +1,30 @@
-import React, { useState } from 'react'
-import AIRoster from '../components/mission-control/AIRoster'
-import TaskingTerminal from '../components/mission-control/TaskingTerminal'
-import LiveCommsLog from '../components/mission-control/LiveCommsLog'
-import { ChatModal } from '../components/ChatModal'
+// src/pages/MissionControl.tsx
+import { useState } from "react"
+import TopBar from "../components/TopBar"
+import PersonaGrid from "../components/PersonaGrid"
+import HydraChatTest from "../components/HydraChatTest"
 
-const MissionControl: React.FC = () => {
-  const [selectedAI, setSelectedAI] = useState<any>(null)
-  const [isChatOpen, setIsChatOpen] = useState(false)
-
-  const handleAISelect = (aiMember: any) => {
-    setSelectedAI(aiMember)
-    setIsChatOpen(true)
-  }
-
-  const handleChatClose = () => {
-    setIsChatOpen(false)
-    setSelectedAI(null)
-  }
+export default function MissionControl() {
+  const [who, setWho] = useState("Janus")
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#EAEAEA] p-6">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-4xl font-bold font-['Orbitron'] text-[#00BFFF] mb-8 text-center">
-          Mission Control
-        </h1>
+    <div className="min-h-screen bg-[#0A0A0A] text-[#EAEAEA]">
+      <TopBar />
+      <div className="max-w-6xl mx-auto p-6">
+        <h1 className="text-3xl font-bold mb-2">Mission Control</h1>
+        <p className="text-zinc-400 mb-6">Your roster and live comms.</p>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-200px)]">
-          <div className="lg:col-span-3">
-            <AIRoster onAISelect={handleAISelect} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            <h2 className="text-lg font-semibold mb-3">AI Roster</h2>
+            <PersonaGrid selectedName={who} onSelect={setWho} />
           </div>
 
-          <div className="lg:col-span-6">
-            <TaskingTerminal />
-          </div>
-
-          <div className="lg:col-span-3">
-            <LiveCommsLog />
+          <div>
+            <HydraChatTest personaName={who} />
           </div>
         </div>
-
-        {selectedAI && (
-          <ChatModal
-            isOpen={isChatOpen}
-            onClose={handleChatClose}
-            aiMember={selectedAI}
-          />
-        )}
       </div>
     </div>
   )
 }
-
-export default MissionControl
