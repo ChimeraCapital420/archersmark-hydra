@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 26 26 26; /* #1A1A1A */
+    --foreground: 234 234 234; /* #EAEAEA */
+    --card: 26 26 26;
+    --card-foreground: 234 234 234;
+    --popover: 26 26 26;
+    --popover-foreground: 234 234 234;
+    --primary: 0 191 255; /* #00BFFF */
+    --primary-foreground: 26 26 26;
+    --secondary: 217 0 255; /* #D900FF */
+    --secondary-foreground: 234 234 234;
+    --muted: 68 68 68;
+    --muted-foreground: 170 170 170;
+    --accent: 0 191 255;
+    --accent-foreground: 26 26 26;
+    --destructive: 239 68 68;
+    --destructive-foreground: 234 234 234;
+    --border: 68 68 68;
+    --input: 68 68 68;
+    --ring: 0 191 255;
+    --radius: 0.5rem;
+    --sidebar-background: 17 17 17; /* #111111 */
+    --sidebar-foreground: 234 234 234;
+    --sidebar-primary: 0 191 255;
+    --sidebar-primary-foreground: 26 26 26;
+    --sidebar-accent: 68 68 68;
+    --sidebar-accent-foreground: 234 234 234;
+    --sidebar-border: 68 68 68;
+    --sidebar-ring: 0 191 255;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-[#1A1A1A] text-[#EAEAEA] font-sans;
+    font-family: 'Inter', sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Orbitron', sans-serif;
+    @apply text-[#00BFFF];
+  }
+  
+  button:hover {
+    box-shadow: 0 0 20px rgba(0, 191, 255, 0.5);
+    transition: box-shadow 0.3s ease;
+  }
+  
+  .fade-in {
+    animation: fadeIn 0.8s ease-in-out;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.5s ease-out;
+  }
