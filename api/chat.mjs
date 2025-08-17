@@ -24,16 +24,41 @@ if (GEMINI_API_KEY) llm_providers.push({ name: 'Gemini', client: new GoogleGener
 if (GROK_API_KEY) llm_providers.push({ name: 'Grok', client: new Groq({ apiKey: GROK_API_KEY }) });
 if (DEEPSEEK_API_KEY) llm_providers.push({ name: 'DeepSeek', client: new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com/v1" }) });
 
-
 // --- Helper Functions ---
 function fail(res, code, stage, detail) {
   const msg = typeof detail === 'string' ? detail : (detail && (detail.message || JSON.stringify(detail)));
   return res.status(code).json({ error: stage, detail: msg || '' });
 }
 
+async function getProviderResponse(provider, systemPrompt, messages) {
+    try {
+        const openAILikeMessages = messages.map(m => ({ role: m.role, content: m.content }));
+        switch (provider.name) {
+            case 'Gemini':
+                const geminiMessages = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+                const geminiModel = provider.client.getGenerativeModel({ model: "gemini-1.5-flash" });
+                const geminiResult = await geminiModel.generateContent({ contents: geminiMessages, systemInstruction: { role: 'system', parts: [{text: systemPrompt}] } });
+                return `${provider.name}: ${geminiResult.response.text()}`;
+            case 'Claude':
+                const claudeResult = await provider.client.messages.create({ model: "claude-3-haiku-20240307", system: systemPrompt, messages: openAILikeMessages, max_tokens: 1024 });
+                return `Claude: ${claudeResult.content[0].text}`;
+            case 'Grok':
+                const groqResult = await provider.client.chat.completions.create({ model: "llama3-70b-8192", messages: [{role: 'system', content: systemPrompt}, ...openAILikeMessages], max_tokens: 1024 });
+                return `Grok: ${groqResult.choices[0].message.content}`;
+            default: // OpenAI, DeepSeek
+                const model = provider.name === 'DeepSeek' ? 'deepseek-chat' : 'gpt-4-turbo';
+                const result = await provider.client.chat.completions.create({ model, messages: [{role: 'system', content: systemPrompt}, ...openAILikeMessages], max_tokens: 1024 });
+                return `${provider.name}: ${result.choices[0].message.content}`;
+        }
+    } catch (error) {
+        console.error(`Error from ${provider.name}:`, error.message);
+        return null; // Return null on failure
+    }
+}
+
+
 // --- Main Handler ---
 export default async function handler(req, res) {
-  // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'authorization,content-type');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -45,75 +70,54 @@ export default async function handler(req, res) {
 
   try {
     const admin = createClient(SUPA_URL, SUPA_SERVICE, { auth: { persistSession: false } });
-
-    // --- User Auth & Body Parsing ---
-    const authHeader = req.headers.authorization || '';
-    const userClient = createClient(SUPA_URL, SUPA_ANON, { global: { headers: { Authorization: authHeader } }, auth: { persistSession: false } });
-    const { data: { user }, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !user?.id) return fail(res, 401, 'AUTH_GETUSER', userErr);
-    const userId = user.id;
-
-    const body = req.body;
-    const userMessage = (body?.message || '').trim();
-    const personaName = (body?.personaName || 'Janus').trim();
+    const { data: { user } } = await createClient(SUPA_URL, SUPA_ANON, { global: { headers: { Authorization: req.headers.authorization } }, auth: { persistSession: false } }).auth.getUser();
+    if (!user) return fail(res, 401, 'AUTH_GETUSER', 'Invalid user');
+    
+    const { message: userMessage, personaName = 'Janus' } = req.body;
     if (!userMessage) return fail(res, 400, 'MESSAGE_REQUIRED');
 
-    // --- Persona & History Lookup ---
-    const { data: persona, error: pErr } = await admin.from('ai_personas').select('*').eq('name', personaName).single();
-    if (pErr || !persona?.id) return fail(res, 404, 'PERSONA_LOOKUP', pErr);
+    const { data: persona } = await admin.from('ai_personas').select('*').eq('name', personaName).single();
+    if (!persona) return fail(res, 404, 'PERSONA_LOOKUP', 'Persona not found');
 
-    const { data: history, error: hErr } = await admin.from('conversation_history').select('sender, message_content').eq('user_id', userId).eq('persona_id', persona.id).order('created_at', { ascending: false }).limit(10);
-    if (hErr) return fail(res, 500, 'HISTORY_LOOKUP', hErr);
+    const { data: history } = await admin.from('conversation_history').select('sender, message_content').eq('user_id', user.id).eq('persona_id', persona.id).order('created_at', { ascending: false }).limit(10);
+    
+    await admin.from('conversation_history').insert({ user_id: user.id, persona_id: persona.id, sender: 'user', message_content: userMessage });
 
-    // --- Save User Message ---
-    await admin.from('conversation_history').insert({ user_id: userId, persona_id: persona.id, sender: 'user', message_content: userMessage });
-
-    // --- Parallel LLM Calls ---
     const systemPrompt = `You are ${persona.name}. Role: "${persona.role}". Attributes: ${persona.key_attributes}. Summary: "${persona.dossier_summary}". Respond as this persona. Stay in character. Be direct and intelligent.`;
     const messages = [ ...history.reverse().map(h => ({ role: h.sender === 'user' ? 'user' : 'assistant', content: h.message_content })), { role: 'user', content: userMessage } ];
     
-    const promises = llm_providers.map(provider => {
-        const chatMessages = messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
-        const openAILikeMessages = messages.map(m => ({ role: m.role, content: m.content }));
-        
-        switch (provider.name) {
-            case 'Gemini':
-                return provider.client.getGenerativeModel({ model: "gemini-1.5-flash" }).generateContent({ contents: chatMessages, systemInstruction: { role: 'system', parts: [{text: systemPrompt}] } }).then(r => `Gemini: ${r.response.text()}`);
-            case 'Claude':
-                return provider.client.messages.create({ model: "claude-3-haiku-20240307", system: systemPrompt, messages: openAILikeMessages, max_tokens: 1024 }).then(r => `Claude: ${r.content[0].text}`);
-            case 'Grok':
-                 return provider.client.chat.completions.create({ model: "llama3-70b-8192", messages: [{role: 'system', content: systemPrompt}, ...openAILikeMessages], max_tokens: 1024 }).then(r => `Grok: ${r.choices[0].message.content}`);
-            default: // OpenAI, DeepSeek
-                return provider.client.chat.completions.create({ model: "gpt-4-turbo", messages: [{role: 'system', content: systemPrompt}, ...openAILikeMessages], max_tokens: 1024 }).then(r => `${provider.name}: ${r.choices[0].message.content}`);
+    const promises = llm_providers.map(p => getProviderResponse(p, systemPrompt, messages));
+    const results = await Promise.all(promises);
+    const successfulResponses = results.filter(Boolean).join('\n---\n');
+
+    if (!successfulResponses) return fail(res, 503, 'ALL_PROVIDERS_FAILED', 'All AI providers failed to respond.');
+
+    // --- Synthesis Step with Failover ---
+    const synthesisPrompt = `You are the final layer of the Hydra Engine. Your task is to synthesize the best possible response for the persona "${persona.name}" based on suggestions from several AI models.\nPersona Profile: ${systemPrompt}\nUser's Message: "${userMessage}"\nCandidate Responses:\n${successfulResponses}\n---\nSynthesize these into a single, cohesive, in-character response. Do not act as a reviewer; embody the persona and speak directly to the user. The final output must only be the persona's direct response.`;
+    
+    let finalReply = 'Error: Could not synthesize a final response.';
+    const synthesis_candidates = ['OpenAI', 'Claude', 'Gemini'];
+
+    for (const candidateName of synthesis_candidates) {
+        const provider = llm_providers.find(p => p.name === candidateName);
+        if (provider) {
+            try {
+                const response = await getProviderResponse(provider, 'You are a master synthesizer AI.', [{ role: 'user', content: synthesisPrompt }]);
+                if (response) {
+                    finalReply = response.substring(response.indexOf(':') + 2);
+                    break; // Success, exit the loop
+                }
+            } catch (e) {
+                console.warn(`Synthesis with ${candidateName} failed, trying next...`);
+            }
         }
-    });
+    }
 
-    const results = await Promise.allSettled(promises);
-    const successfulResponses = results.filter(r => r.status === 'fulfilled').map(r => r.value).join('\n---\n');
-
-    // --- Synthesis Step ---
-    const synthesisPrompt = `You are the final layer of the Hydra Engine. Your task is to synthesize the best possible response for the persona "${persona.name}" based on suggestions from several AI models.
-Persona Profile: ${systemPrompt}
-User's Message: "${userMessage}"
-Candidate Responses:
-${successfulResponses}
----
-Synthesize these into a single, cohesive, in-character response. Do not act as a reviewer; embody the persona and speak directly to the user. The final output must only be the persona's direct response.`;
-
-    const finalCompletion = await llm_providers.find(p => p.name === 'OpenAI').client.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: 'user', content: synthesisPrompt }],
-      max_tokens: 1024,
-    });
-
-    const finalReply = finalCompletion.choices[0].message.content.trim();
-
-    // --- Save AI Reply & Respond ---
-    await admin.from('conversation_history').insert({ user_id: userId, persona_id: persona.id, sender: 'ai', message_content: finalReply });
-
+    await admin.from('conversation_history').insert({ user_id: user.id, persona_id: persona.id, sender: 'ai', message_content: finalReply });
     return res.status(200).json({ reply: finalReply, persona: persona.name });
+
   } catch (e) {
-    console.error(e);
+    console.error('Fatal error in chat handler:', e);
     return fail(res, 500, 'FATAL', e);
   }
 }
