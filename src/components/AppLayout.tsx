@@ -4,19 +4,20 @@ import { useAppContext } from '@/contexts/AppContext';
 import Sidebar from './Sidebar';
 import { supabase } from '@/lib/supabaseClient';
 import { Button } from './ui/button';
+import { Volume2, VolumeX } from 'lucide-react';
 
 interface AppLayoutProps {
   children?: React.ReactNode;
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
-  const { toggleSidebar } = useAppContext();
+  const { toggleSidebar, isSpeechEnabled, toggleSpeech } = useAppContext();
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     navigate('/');
-    window.location.reload(); // Force a reload to clear state and redirect
+    window.location.reload();
   };
 
   return (
@@ -40,6 +41,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             </Button>
             <Button variant="ghost" asChild>
                <Link to="/knowledge">Knowledge</Link>
+            </Button>
+            <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSpeech}
+                title={isSpeechEnabled ? "Mute speech" : "Unmute speech"}
+                className="w-8 h-8"
+            >
+                {isSpeechEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5 text-gray-500" />}
             </Button>
             <Button variant="outline" size="sm" onClick={handleSignOut}>Sign Out</Button>
           </div>
