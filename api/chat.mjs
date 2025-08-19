@@ -25,6 +25,7 @@ if (GROK_API_KEY) llm_providers.push({ name: 'Grok', client: new Groq({ apiKey: 
 if (DEEPSEEK_API_KEY) llm_providers.push({ name: 'DeepSeek', client: new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com/v1" }) });
 
 const adminSupabase = createClient(SUPA_URL, SUPA_SERVICE, { auth: { persistSession: false } });
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY }); // For embeddings
 
 // --- Helper Functions ---
 function fail(res, code, stage, detail) {
@@ -92,14 +93,31 @@ export default async function handler(req, res) {
 
     const { data: persona } = await adminSupabase.from('ai_personas').select('*').eq('name', personaName).single();
     if (!persona) return fail(res, 404, 'PERSONA_LOOKUP', 'Persona not found');
-
-    const { data: history } = await adminSupabase.from('conversation_history').select('sender, message_content').eq('user_id', user.id).eq('persona_id', persona.id).order('created_at', { ascending: false }).limit(10);
     
     await adminSupabase.from('conversation_history').insert({ user_id: user.id, persona_id: persona.id, sender: 'user', message_content: userMessage });
 
-    const systemPrompt = `You are ${persona.name}. Role: "${persona.role}". Attributes: ${persona.key_attributes}. Summary: "${persona.dossier_summary}". Respond as this persona. Stay in character. Be direct and intelligent.`;
+    // --- Search Knowledge Base ---
+    const embeddingResponse = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: userMessage });
+    const userMessageEmbedding = embeddingResponse.data[0].embedding;
+
+    const { data: documents, error: matchError } = await adminSupabase.rpc('match_documents', {
+        query_embedding: userMessageEmbedding,
+        match_count: 5,
+    });
+    
+    let contextText = '';
+    if (matchError) {
+        console.error("Error matching documents:", matchError);
+    } else if (documents && documents.length > 0) {
+        contextText = documents.map(d => `Source: ${d.file_name}\nContent: ${d.content}`).join('\n\n---\n\n');
+    }
+
+    // --- Prepare Prompts and History ---
+    const { data: history } = await adminSupabase.from('conversation_history').select('sender, message_content').eq('user_id', user.id).eq('persona_id', persona.id).order('created_at', { ascending: false }).limit(10);
+    const systemPrompt = `You are ${persona.name}. Role: "${persona.role}". Attributes: ${persona.key_attributes}. Summary: "${persona.dossier_summary}". Respond as this persona. Stay in character. Be direct and intelligent. If relevant, use the following context from the user's knowledge base to inform your response:\n\n<CONTEXT>\n${contextText}\n</CONTEXT>`;
     const messages = [ ...history.reverse().map(h => ({ role: h.sender === 'user' ? 'user' : 'assistant', content: h.message_content })), { role: 'user', content: userMessage } ];
     
+    // --- Parallel LLM Calls ---
     const promises = llm_providers.map(p => getProviderResponse(p, systemPrompt, messages));
     const results = await Promise.all(promises);
     const successfulResponses = results.filter(Boolean).join('\n---\n');
@@ -109,6 +127,7 @@ export default async function handler(req, res) {
         return fail(res, 503, 'ALL_PROVIDERS_FAILED', 'All AI providers failed to respond.');
     }
 
+    // --- Synthesis Step ---
     const synthesisPrompt = `You are the final layer of the Hydra Engine. Your task is to synthesize the best possible response for the persona "${persona.name}" based on suggestions from several AI models.\nPersona Profile: ${systemPrompt}\nUser's Message: "${userMessage}"\nCandidate Responses:\n${successfulResponses}\n---\nSynthesize these into a single, cohesive, in-character response. Do not act as a reviewer; embody the persona and speak directly to the user. The final output must only be the persona's direct response.`;
     
     let finalReply = 'Error: Could not synthesize a final response.';
@@ -117,14 +136,10 @@ export default async function handler(req, res) {
     for (const candidateName of synthesis_candidates) {
         const provider = llm_providers.find(p => p.name === candidateName);
         if (provider) {
-            try {
-                const response = await getProviderResponse(provider, 'You are a master synthesizer AI.', [{ role: 'user', content: synthesisPrompt }]);
-                if (response) {
-                    finalReply = response.substring(response.indexOf(':') + 2);
-                    break; // Success, exit the loop
-                }
-            } catch (e) {
-                console.warn(`Synthesis with ${candidateName} failed, trying next...`);
+            const response = await getProviderResponse(provider, 'You are a master synthesizer AI.', [{ role: 'user', content: synthesisPrompt }]);
+            if (response) {
+                finalReply = response.substring(response.indexOf(':') + 2);
+                break;
             }
         }
     }

@@ -35,20 +35,19 @@ const Sidebar: React.FC = () => {
             <span className="w-5 h-5 mr-3">🎯</span>
             {(sidebarOpen || window.innerWidth >= 768) && <span>Mission Control</span>}
           </a>
-          {/* New Link */}
+          <a
+            href="/tasks" // New Link
+            className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
+          >
+            <span className="w-5 h-5 mr-3">⚙️</span>
+            {(sidebarOpen || window.innerWidth >= 768) && <span>Task Center</span>}
+          </a>
           <a
             href="/knowledge"
             className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
           >
             <span className="w-5 h-5 mr-3">📚</span>
             {(sidebarOpen || window.innerWidth >= 768) && <span>Knowledge</span>}
-          </a>
-          <a
-            href="#"
-            className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
-          >
-            <span className="w-5 h-5 mr-3">📞</span>
-            {(sidebarOpen || window.innerWidth >= 768) && <span>Contact</span>}
           </a>
         </nav>
       </div>
