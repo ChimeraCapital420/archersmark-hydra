@@ -36,7 +36,7 @@ const Sidebar: React.FC = () => {
             {(sidebarOpen || window.innerWidth >= 768) && <span>Mission Control</span>}
           </a>
           <a
-            href="/tasks" // New Link
+            href="/tasks"
             className="flex items-center px-4 py-3 text-[#EAEAEA] hover:text-[#D900FF] hover:bg-[#222222] rounded-lg transition-colors"
           >
             <span className="w-5 h-5 mr-3">⚙️</span>
