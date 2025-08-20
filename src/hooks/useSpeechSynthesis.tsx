@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 
 // A standard Javascript object for configuration to ensure maximum compatibility.
 const personaVoiceConfig = {
-  'Janus': { pitch: 0.8, rate: 1.1 },
+  'Janus': { pitch: 1.0, rate: 1.0 },
   'Athena': { pitch: 1.2, rate: 1.0 },
-  'Vulcan': { pitch: 0.7, rate: 0.9 },
-  'Glitch': { pitch: 1.5, rate: 1.3 },
-  'Default': { pitch: 1, rate: 1 },
+  'Vulcan': { pitch: 0.8, rate: 0.9 },
+  'Glitch': { pitch: 1.5, rate: 1.2 },
+  'Default': { pitch: 1.0, rate: 1.0 },
 };
 
 // This custom hook manages all text-to-speech functionality.
@@ -21,9 +21,9 @@ export const useSpeechSynthesis = () => {
     const synth = window.speechSynthesis;
 
     const loadVoices = () => {
-      const loadedVoices = synth.getVoices();
-      if (loadedVoices.length > 0) {
-        setVoices(loadedVoices);
+      const availableVoices = synth.getVoices();
+      if (availableVoices.length > 0) {
+        setVoices(availableVoices);
       }
     };
 
@@ -32,7 +32,9 @@ export const useSpeechSynthesis = () => {
     synth.onvoiceschanged = loadVoices;
 
     return () => {
-      synth.onvoiceschanged = null;
+      if (synth) {
+        synth.onvoiceschanged = null;
+      }
     };
   }, []);
 
@@ -51,15 +53,10 @@ export const useSpeechSynthesis = () => {
     const config = personaVoiceConfig[personaName as keyof typeof personaVoiceConfig] || personaVoiceConfig.Default;
 
     // Find the best available voice in the user's browser.
-    const femaleVoice = voices.find(voice => voice.name.includes('Female') && voice.lang.startsWith('en'));
-    const maleVoice = voices.find(voice => voice.name.includes('Male') && voice.lang.startsWith('en'));
-
-    if (personaName === 'Athena' && femaleVoice) {
-      utterance.voice = femaleVoice;
-    } else if (personaName === 'Janus' && maleVoice) {
-      utterance.voice = maleVoice;
-    }
-
+    const preferredVoice = voices.find(voice => voice.name.includes(personaName) && voice.lang.startsWith('en'));
+    const fallbackVoice = voices.find(voice => voice.lang.startsWith('en'));
+    
+    utterance.voice = preferredVoice || fallbackVoice || null;
     utterance.pitch = config.pitch;
     utterance.rate = config.rate;
 
