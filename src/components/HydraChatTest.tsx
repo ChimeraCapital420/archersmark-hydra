@@ -1,9 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { sendChat } from "../lib/hydraApi";
 import { supabase } from "../lib/supabaseClient";
 import VoiceInput from "./VoiceInput";
-import { useSpeechSynthesis } from "../hooks/useSpeechSynthesis";
-import { useAppContext } from "@/contexts/AppContext"; // Import the App Context
+import { useSpeechSynthesis } from "../hooks/useSpeechSynthesis.tsx";
+import { useAppContext } from "@/contexts/AppContext";
 
 type Row = {
   id: number;
@@ -15,12 +15,13 @@ type Row = {
 
 export default function HydraChatTest({ personaName }: { personaName: string }) {
   const [msg, setMsg] = useState("");
+  const [interimMsg, setInterimMsg] = useState("");
   const [replying, setReplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [history, setHistory] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const { isSpeechEnabled } = useAppContext(); // Get the global speech state
+  const { isSpeechEnabled } = useAppContext();
   const { speak } = useSpeechSynthesis();
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastSpokenMessageId = useRef<number | null>(null);
@@ -32,19 +33,12 @@ export default function HydraChatTest({ personaName }: { personaName: string }) 
       const lastMessage = history[history.length - 1];
       if (lastMessage.sender === 'ai' && lastMessage.id !== lastSpokenMessageId.current) {
         speak(lastMessage.message_content, personaName);
-        lastSpokenMessageId.current = lastMessage.id; // Mark this message as spoken
+        lastSpokenMessageId.current = lastMessage.id;
       }
     }
   }, [history, personaName, speak, isSpeechEnabled]);
 
-  const [userId, setUserId] = useState<string | null>(null);
   const [personaId, setPersonaId] = useState<string | null>(null);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUserId(data.user?.id ?? null);
-    });
-  }, []);
 
   useEffect(() => {
     let live = true;
@@ -60,37 +54,44 @@ export default function HydraChatTest({ personaName }: { personaName: string }) 
         return;
       }
       setPersonaId(persona.id);
-      const { data: rows, error: hErr } = await supabase.from("conversation_history").select("*").eq("persona_id", persona.id).order("created_at", { ascending: true }).limit(50);
+      const { data: rows } = await supabase.from("conversation_history").select("*").eq("persona_id", persona.id).order("created_at", { ascending: true }).limit(50);
       if (!live) return;
-      if (hErr) setErr(hErr.message);
       setHistory(rows || []);
       setLoading(false);
     })();
     return () => { live = false; };
   }, [personaName]);
 
-  async function onSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (!msg.trim() || !personaId) return;
+  const onSend = useCallback(async (messageToSend: string) => {
+    if (!messageToSend.trim() || !personaId) return;
     setErr(null);
     setReplying(true);
     try {
-      setHistory(h => [...h, { id: Date.now(), sender: "user", message_content: msg.trim(), image_url: null, created_at: new Date().toISOString() }]);
-      setMsg("");
-      await sendChat(msg, personaName);
+      setHistory(h => [...h, { id: Date.now(), sender: "user", message_content: messageToSend.trim(), image_url: null, created_at: new Date().toISOString() }]);
+      await sendChat(messageToSend, personaName);
       const { data: rows } = await supabase.from("conversation_history").select("*").eq("persona_id", personaId).order("created_at", { ascending: true }).limit(50);
       setHistory(rows || []);
     } catch (e: any) {
       setErr(e?.message || "Something went wrong");
-      const { data: rows } = await supabase.from("conversation_history").select("*").eq("persona_id", personaId).order("created_at", { ascending: true }).limit(50);
-      setHistory(rows || []);
     } finally {
       setReplying(false);
     }
-  }
+  }, [personaId, personaName]);
 
-  const handleTranscript = (transcript: string) => {
-    setMsg(prevMsg => prevMsg.endsWith(' ') || prevMsg === '' ? prevMsg + transcript : prevMsg + ' ' + transcript);
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSend(msg);
+    setMsg("");
+  };
+
+  const handleFinalTranscript = useCallback((transcript: string) => {
+    const newMessage = msg.trim() + (msg.trim() ? ' ' : '') + transcript.trim();
+    setMsg(newMessage);
+    setInterimMsg(''); // Clear interim when final is received
+  }, [msg]);
+
+  const handleInterimTranscript = (transcript: string) => {
+    setInterimMsg(transcript);
   };
 
   return (
@@ -113,11 +114,22 @@ export default function HydraChatTest({ personaName }: { personaName: string }) 
         ))}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={onSend} className="p-4 border-t border-zinc-800 space-y-3 flex-shrink-0">
+      <form onSubmit={handleFormSubmit} className="p-4 border-t border-zinc-800 space-y-3 flex-shrink-0">
         {err && <div className="text-sm text-red-400">{err}</div>}
         <div className="flex items-start gap-2">
-          <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder={`Type or dictate a message for ${personaName}…`} className="w-full min-h-[90px] p-3 rounded bg-zinc-800 border border-zinc-700 outline-none resize-none" />
-          <VoiceInput onTranscript={handleTranscript} />
+          <textarea
+            value={msg + interimMsg}
+            onChange={e => {
+              setMsg(e.target.value);
+              setInterimMsg('');
+            }}
+            placeholder={`Type or dictate a message for ${personaName}…`}
+            className="w-full min-h-[90px] p-3 rounded bg-zinc-800 border border-zinc-700 outline-none resize-none"
+          />
+          <VoiceInput
+            onFinalTranscript={handleFinalTranscript}
+            onInterimTranscript={handleInterimTranscript}
+          />
         </div>
         <button disabled={replying || !msg.trim()} className="px-4 py-2 rounded bg-[#00BFFF] text-black font-semibold disabled:opacity-60">
           {replying ? "Sending…" : `Send to ${personaName}`}

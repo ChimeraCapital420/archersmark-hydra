@@ -11,7 +11,8 @@ import AppLayout from "./components/AppLayout"
 import Index from "./pages/Index"
 import MissionControl from "./pages/MissionControl"
 import Knowledge from "./pages/Knowledge"
-import TaskCenter from "./pages/TaskCenter" // Import the new page
+import TaskCenter from "./pages/TaskCenter"
+import Workshop from "./pages/Workshop" // Import the new page
 import NotFound from "./pages/NotFound"
 
 const queryClient = new QueryClient()
@@ -30,7 +31,8 @@ const App = () => (
                   <Route path="/" element={<Index />} />
                   <Route path="/mission" element={<MissionControl />} />
                   <Route path="/knowledge" element={<Knowledge />} />
-                  <Route path="/tasks" element={<TaskCenter />} /> {/* Add the new route */}
+                  <Route path="/tasks" element={<TaskCenter />} />
+                  <Route path="/workshop" element={<Workshop />} /> {/* Add the new route */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </AppLayout>

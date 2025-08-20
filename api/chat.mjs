@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
+import cheerio from 'cheerio';
 
 // --- Environment Variable Setup ---
 const {
@@ -25,7 +26,7 @@ if (GROK_API_KEY) llm_providers.push({ name: 'Grok', client: new Groq({ apiKey: 
 if (DEEPSEEK_API_KEY) llm_providers.push({ name: 'DeepSeek', client: new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: "https://api.deepseek.com/v1" }) });
 
 const adminSupabase = createClient(SUPA_URL, SUPA_SERVICE, { auth: { persistSession: false } });
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY }); // For embeddings
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 // --- Helper Functions ---
 function fail(res, code, stage, detail) {
@@ -42,6 +43,7 @@ async function logHydraEvent(log) {
 }
 
 async function getProviderResponse(provider, systemPrompt, messages) {
+    // This function remains the same
     try {
         const openAILikeMessages = messages.map(m => ({ role: m.role, content: m.content }));
         switch (provider.name) {
@@ -73,6 +75,24 @@ async function getProviderResponse(provider, systemPrompt, messages) {
     }
 }
 
+async function scrapeURL(url) {
+    // This function remains the same
+    try {
+        const response = await fetch(url, { headers: { 'User-Agent': 'HydraEngineBot/1.0' } });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        $('script, style, noscript, iframe, img, svg, header, footer, nav, aside').remove();
+        let text = $('body').text();
+        text = text.replace(/\s\s+/g, ' ').trim();
+        return text.slice(0, 8000);
+    } catch (error) {
+        console.error(`Error scraping ${url}:`, error.message);
+        await logHydraEvent({ log_type: 'WEB_SCRAPE_FAILURE', provider: 'cheerio', error_message: error.message, metadata: { url } });
+        return `[Could not retrieve content from the URL: ${url}]`;
+    }
+}
+
 // --- Main Handler ---
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -96,28 +116,42 @@ export default async function handler(req, res) {
     
     await adminSupabase.from('conversation_history').insert({ user_id: user.id, persona_id: persona.id, sender: 'user', message_content: userMessage });
 
-    // --- Search Knowledge Base ---
-    const embeddingResponse = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: userMessage });
-    const userMessageEmbedding = embeddingResponse.data[0].embedding;
-
-    const { data: documents, error: matchError } = await adminSupabase.rpc('match_documents', {
-        query_embedding: userMessageEmbedding,
-        match_count: 5,
-    });
+    let knowledgeContext = '';
+    // --- NEW: Graceful failure for Knowledge Base search ---
+    if (openai) {
+        try {
+            const embeddingResponse = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: userMessage });
+            const userMessageEmbedding = embeddingResponse.data[0].embedding;
+            const { data: documents } = await adminSupabase.rpc('match_documents', { query_embedding: userMessageEmbedding, match_count: 5 });
+            if (documents && documents.length > 0) {
+                knowledgeContext = documents.map(d => `Source: ${d.file_name}\nContent: ${d.content}`).join('\n\n---\n\n');
+            }
+        } catch (e) {
+            console.error("Knowledge base search failed:", e.message);
+            await logHydraEvent({ log_type: 'EMBEDDING_FAILURE', provider: 'OpenAI', error_message: e.message });
+            knowledgeContext = '[Knowledge Base search failed due to API error. Proceeding without it.]';
+        }
+    } else {
+        knowledgeContext = '[Knowledge Base is disabled. No OpenAI key found for embeddings.]';
+    }
     
-    let contextText = '';
-    if (matchError) {
-        console.error("Error matching documents:", matchError);
-    } else if (documents && documents.length > 0) {
-        contextText = documents.map(d => `Source: ${d.file_name}\nContent: ${d.content}`).join('\n\n---\n\n');
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urlsInMessage = userMessage.match(urlRegex);
+    let webContext = '';
+    if (urlsInMessage) {
+        const scrapePromises = urlsInMessage.map(url => scrapeURL(url));
+        const scrapedContents = await Promise.all(scrapePromises);
+        webContext = scrapedContents.join('\n\n');
     }
 
-    // --- Prepare Prompts and History ---
+    let combinedContext = '';
+    if(webContext) combinedContext += `CONTEXT FROM WEB:\n${webContext}\n\n`;
+    if(knowledgeContext) combinedContext += `CONTEXT FROM KNOWLEDGE BASE:\n${knowledgeContext}\n\n`;
+
     const { data: history } = await adminSupabase.from('conversation_history').select('sender, message_content').eq('user_id', user.id).eq('persona_id', persona.id).order('created_at', { ascending: false }).limit(10);
-    const systemPrompt = `You are ${persona.name}. Role: "${persona.role}". Attributes: ${persona.key_attributes}. Summary: "${persona.dossier_summary}". Respond as this persona. Stay in character. Be direct and intelligent. If relevant, use the following context from the user's knowledge base to inform your response:\n\n<CONTEXT>\n${contextText}\n</CONTEXT>`;
+    const systemPrompt = `You are ${persona.name}. Role: "${persona.role}". Attributes: ${persona.key_attributes}. Summary: "${persona.dossier_summary}". Respond as this persona. Stay in character. Be direct and intelligent. If relevant, use the following context from the user's knowledge base and provided web links to inform your response:\n\n<CONTEXT>\n${combinedContext || 'No context provided.'}\n</CONTEXT>`;
     const messages = [ ...history.reverse().map(h => ({ role: h.sender === 'user' ? 'user' : 'assistant', content: h.message_content })), { role: 'user', content: userMessage } ];
     
-    // --- Parallel LLM Calls ---
     const promises = llm_providers.map(p => getProviderResponse(p, systemPrompt, messages));
     const results = await Promise.all(promises);
     const successfulResponses = results.filter(Boolean).join('\n---\n');
@@ -127,11 +161,10 @@ export default async function handler(req, res) {
         return fail(res, 503, 'ALL_PROVIDERS_FAILED', 'All AI providers failed to respond.');
     }
 
-    // --- Synthesis Step ---
     const synthesisPrompt = `You are the final layer of the Hydra Engine. Your task is to synthesize the best possible response for the persona "${persona.name}" based on suggestions from several AI models.\nPersona Profile: ${systemPrompt}\nUser's Message: "${userMessage}"\nCandidate Responses:\n${successfulResponses}\n---\nSynthesize these into a single, cohesive, in-character response. Do not act as a reviewer; embody the persona and speak directly to the user. The final output must only be the persona's direct response.`;
     
     let finalReply = 'Error: Could not synthesize a final response.';
-    const synthesis_candidates = ['OpenAI', 'Claude', 'Gemini'];
+    const synthesis_candidates = ['Claude', 'Gemini', 'OpenAI', 'Grok'];
 
     for (const candidateName of synthesis_candidates) {
         const provider = llm_providers.find(p => p.name === candidateName);
